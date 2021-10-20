@@ -1,57 +1,61 @@
-import express from "express";
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
+const UserSchema = new mongoose.Schema({
+    fullname: {type: String, required: true},
+    email: {type: String, required: true},
+    password: {type: String, required: true},
+    address: [{detail: {type:String}, for:{type:String}}],
+    phoneNumber: [{type: Number}]
+},
 
-
-const Router = express.Router();
-//Models
-import { UserModel } from "../../database/user";
-
-/*
-Route           /signup
-Descrip           Signup with email & password
-Params              Public
-Access              Public
-Method              POST
-*/
-
-Router.post("/signup", async(req,res) => {
-    try{
-       await UserModel.findEmailAndPhone(req.body.credentials);
-
-
-const newUser = await UserModel.create(req.body.credentials);
-
-const token = newUser.generateJwtToken();
-
-    return res.status(200).json({token});
-    }catch (error){
-        return res.status(500).json({error: error.message});
-    }
+{
+    timestamps: true
 });
 
-/*
-Route           /signin|
-Descrip           Signin with email & password
-Params              None
-Access              Public
-Method              POST
-*/
+UserSchema.methods.generateJwtToken = function(){
+    return jwt.sign({user: this._id.toString()}, "ZomatoApp");
+};
 
-Router.post("/signin", async(req,res) => {
-    try{
-
-        const doesUserExist = await UserModel.findByEmailAndPassword(req.body.credentials);
-       
-
-
-const token = User.generateJwtToken();
-
-    return res.status(200).json({token, status: "Success"});
-    }catch (error){
-        return res.status(500).json({error: error.message});
+UserSchema.statics.findEmailAndPhone = async ({email, phoneNumber}) => {
+    const checkUserByEmail = await UserModel.findOne({email});
+    const checkUserByPhone = await UserModel.findOne({phoneNumber});
+    if(checkUserByEmail || checkUserByPhone){
+        throw new Error("user already exist");
     }
+    return false;
+};
+
+UserSchema.statics.findByEmailAndPassword = async ({email, password}) => {
+    const User = await UserModel.findOne({email});
+    if(!user) throw new Error("User doesnot exist");
+    //compare password
+    const doesPasswordMatch = await bcrypt.compare(password, user.password)
+
+    
+    if(!doesPasswordMatch){
+        throw new Error("Invalid password");
+    }
+    return user;
+};
+
+UserSchema.pre("save",function(next){
+        const user = this;
+//password isnot modified 
+        if(!user.isModified("password")) return next();
+//generated bcrypy salt
+        bcrypt.genSalt(8,(error,salt)=> {
+            if(error) return next(error);
+
+
+            bcrypt.hash(user.password, salt, (error,hash)=>{
+                if(error) return next(error);
+                //assigning hashed password
+                user.password = hash;
+                return next();
+            })
+        });
 });
 
-export default Router;
+export const UserModel = mongoose.model("Users", UserSchema);
